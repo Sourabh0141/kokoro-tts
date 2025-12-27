@@ -1,6 +1,6 @@
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Response
-from app.schemas.tts import TTSRequest
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from app.schemas.tts import TTSRequest, HealthResponse
 from app.services.tts import TTSEngine
 from app.core.dependencies import get_tts_engine, api_key_auth
 from app.core.exceptions import LanguageNotSupportedError, VoiceNotFoundError
@@ -32,3 +32,31 @@ async def generate_audio(
     except Exception as e:
         # In a real app, we would log the full stack trace here
         raise HTTPException(status_code=500, detail="Internal Server Error during audio generation.")
+
+@router.get("/health", response_model=HealthResponse)
+async def health_check(service: TTSEngine = Depends(get_tts_engine)):
+    """
+    Health check endpoint to verify service status.
+    """
+    if not service.is_ready:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service is initializing or not ready"
+        )
+    
+    return HealthResponse(
+        status="ok",
+        loaded_languages=list(service.pipelines.keys()),
+        device=service.device
+    )
+
+@router.get("/")
+async def root():
+    """
+    Root endpoint providing service information.
+    """
+    return {
+        "service": "Kokoro TTS",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
