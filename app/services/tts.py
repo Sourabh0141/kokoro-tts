@@ -1,7 +1,9 @@
 import sys
 import os
+import io
 from typing import Dict, Optional, Any
 import torch
+import soundfile as sf
 
 # Ensure kokoro_tts is in sys.path
 kokoro_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'kokoro_tts'))
@@ -18,7 +20,7 @@ except ImportError as e:
     KPipeline = Any
 
 from app.core.config import Settings
-from app.core.exceptions import ModelLoadError, VoiceNotFoundError
+from app.core.exceptions import ModelLoadError, VoiceNotFoundError, LanguageNotSupportedError
 
 class TTSEngine:
     def __init__(self, settings: Settings):
@@ -93,9 +95,16 @@ class TTSEngine:
     def validate_request(self, text: str, lang_code: str):
         """
         Checks if lang_code exists.
-        Checks if text length is within limits (optional safety).
+        Checks if text length is within limits.
         """
-        pass
+        if lang_code not in self.pipelines:
+            raise LanguageNotSupportedError(lang_code)
+        
+        if not text.strip():
+            raise ValueError("Text cannot be empty.")
+            
+        if len(text) > 5000: # Reasonable limit for a synchronous request
+            raise ValueError("Text length exceeds maximum limit of 5000 characters.")
 
     def generate(self, text: str, lang_code: str, speed: float) -> bytes:
         """
@@ -110,4 +119,31 @@ class TTSEngine:
         7. Convert full_tensor to WAV bytes using soundfile (Save to BytesIO)
         8. Return bytes
         """
-        pass
+        self.validate_request(text, lang_code)
+        
+        pipeline = self.pipelines[lang_code]
+        voice_id = self.voice_map[lang_code]
+        
+        # Generator that yields Result objects
+        result_generator = pipeline(text, voice=voice_id, speed=speed)
+        
+        audio_segments = []
+        for result in result_generator:
+            if result.audio is not None:
+                audio_segments.append(result.audio)
+        
+        if not audio_segments:
+            raise ValueError("No audio generated from the input text.")
+            
+        # Concatenate all audio segments
+        full_tensor = torch.cat(audio_segments, dim=0)
+        
+        # Move to CPU and convert to numpy
+        audio_array = full_tensor.cpu().numpy()
+        
+        # Encode to WAV in memory
+        buffer = io.BytesIO()
+        sf.write(buffer, audio_array, 24000, format='WAV')
+        buffer.seek(0)
+        
+        return buffer.read()
