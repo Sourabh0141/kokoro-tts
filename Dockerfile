@@ -14,11 +14,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy Config and Source
-COPY kokoro_tts ./kokoro_tts
 COPY app ./app
-
-# Set PYTHONPATH
-ENV PYTHONPATH=/app:/app/kokoro_tts
 
 # Run
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8880"]

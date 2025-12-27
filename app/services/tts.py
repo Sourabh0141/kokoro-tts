@@ -5,19 +5,23 @@ from typing import Dict, Optional, Any
 import torch
 import soundfile as sf
 
-# Ensure kokoro_tts is in sys.path
-kokoro_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'kokoro_tts'))
-if kokoro_path not in sys.path:
-    sys.path.append(kokoro_path)
-
+# Import directly from the installed package
 try:
-    from kokoro.model import KModel
-    from kokoro.pipeline import KPipeline
-except ImportError as e:
-    print(f"Warning: Could not import kokoro modules: {e}")
-    # Fallback types for static analysis if imports fail
-    KModel = Any
-    KPipeline = Any
+    from kokoro import KPipeline
+    # KModel might be internal or part of pipeline, but let's assume KPipeline handles most or we import if needed
+    # For advanced usage we might need KModel, let's keep the import if available or rely on pipeline
+    # The original code imported KModel from kokoro.model
+    # Checking the pip package structure is hard without running, but usually:
+    from kokoro import KModel # Attempt top level import first, or submodules
+except ImportError:
+    # Fallback/Retry standard paths if top-level fails (some packages structure differently)
+    try:
+        from kokoro.model import KModel
+        from kokoro.pipeline import KPipeline
+    except ImportError:
+        print("Warning: Could not import kokoro modules. Ensure 'kokoro' is installed.")
+        KModel = Any
+        KPipeline = Any
 
 from app.core.config import Settings
 from app.core.exceptions import ModelLoadError, VoiceNotFoundError, LanguageNotSupportedError

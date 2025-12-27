@@ -11,3 +11,4 @@ transformers>=4.40.0
 huggingface_hub>=0.22.0
 scipy>=1.13.0         # Often needed for audio signal processing
 misaki[en]>=0.9.4     # G2P requirement
+kokoro>=0.3.4         # Main TTS library

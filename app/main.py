@@ -37,3 +37,8 @@ async def root():
         "docs": "/docs",
         "api_v1": "/v1/"
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    settings = get_settings()
+    uvicorn.run("app.main:app", host=settings.service.host, port=settings.service.port, reload=True)
