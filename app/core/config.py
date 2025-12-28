@@ -12,23 +12,27 @@ class ServiceSettings(BaseModel):
     api_key: str = "dev_api_key"
 
 class ModelSettings(BaseModel):
-    repo_id: str = "hexgrad/Kokoro-82M"
+    # repo_id is optional now, used only if local path not found or for reference
+    repo_id: str = "hexgrad/Kokoro-82M" 
     device: str = "cpu"  # 'cpu' or 'cuda'
     dtype: str = "fp32"  # 'fp32', 'fp16', 'bf16'
+    local_model_dir: str = "models/model"
+    local_voices_dir: str = "models/voices"
 
 class Settings(BaseSettings):
     service: ServiceSettings = ServiceSettings()
     model: ModelSettings = ModelSettings()
+    # Default Default mappings (can be overridden by env vars)
     languages: Dict[str, str] = {
-        "a": "af_heart",  # American English
-        "b": "bf_emma",   # British English
-        "j": "jf_alpha",  # Japanese
-        "z": "zf_xiaobei",# Chinese
-        "e": "ef_dora",   # Spanish
-        "f": "ff_siwis",  # French
-        "h": "hf_alpha",  # Hindi
-        "i": "if_sara",   # Italian
-        "p": "pf_dora",   # Portuguese
+        "a": "af_bella",  # Default American
+        "b": "bf_emma",   # Default British
+        "j": "jf_alpha",  # Default Japanese
+        "z": "zf_xiaobei",# Default Chinese
+        "e": "ef_dora",   # Default Spanish
+        "f": "ff_siwis",  # Default French
+        "h": "hf_alpha",  # Default Hindi
+        "i": "if_sara",   # Default Italian
+        "p": "pf_dora",   # Default Portuguese
     }
 
     model_config = SettingsConfigDict(

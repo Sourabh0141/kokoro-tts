@@ -1,20 +1,18 @@
-FROM python:3.10-slim-bookworm
+FROM python:3.11-slim-bookworm
 
 # System deps
 RUN apt-get update && apt-get install -y \
     espeak-ng \
-    libsndfile1 \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy Requirements & Install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install uv
 
-# Copy Config and Source
+COPY requirements.txt .
+RUN uv pip install --no-cache-dir -r requirements.txt
+
+
 COPY app ./app
 
-# Run
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8880"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

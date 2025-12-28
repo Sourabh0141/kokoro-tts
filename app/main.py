@@ -1,3 +1,7 @@
+import os
+# Suppress Hugging Face symlink warnings
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.core.config import get_settings

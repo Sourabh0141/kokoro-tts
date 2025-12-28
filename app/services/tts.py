@@ -47,51 +47,109 @@ class TTSEngine:
 
     def initialize(self):
         """
-        1. Load shared KModel to self.device.
+        1. Load shared KModel to self.device from LOCAL files.
         2. Iterate through self.settings.languages:
-           a. Create KPipeline(lang_code, model=self.model)
-           b. Load Voice: pipeline.load_voice(voice_id)
-           c. Store pipeline in self.pipelines[lang_code]
+           a. Create KPipeline
+           b. Load Voice locally from .pt file
+           c. Store pipeline
         3. Set self.is_ready = True
         """
         try:
             print(f"Initializing TTS Engine on device: {self.device}")
             
-            # 1. Load shared KModel
-            print(f"Loading Model: {self.settings.model.repo_id}")
-            self.model = KModel(
-                repo_id=self.settings.model.repo_id,
-                disable_complex=(self.settings.model.dtype != 'fp32') # approximate logic, adjust if needed
-            )
+            # Paths
+            local_model_path = os.path.join(self.settings.model.local_model_dir, "kokoro-v1_0.pth")
+            if not os.path.exists(local_model_path):
+                 local_model_path = os.path.join(self.settings.model.local_model_dir, "kokoro-v0_19.pth")
+            
+            print(f"Loading Model from: {local_model_path}")
+            
+            if not os.path.exists(local_model_path):
+                raise FileNotFoundError(f"Model file not found at {local_model_path}. Please run download_models.py")
+
+            # Load Raw State Dict
+            raw_state_dict = torch.load(local_model_path, map_location=self.device)
+            
+            # Flatten and Clean State Dict (Handle 'bert' -> 'module.' wrapping)
+            state_dict = {}
+            for key, value in raw_state_dict.items():
+                if isinstance(value, dict):
+                    for sub_key, sub_val in value.items():
+                        if sub_key.startswith("module."):
+                            sub_key = sub_key[7:]
+                        state_dict[f"{key}.{sub_key}"] = sub_val
+                else:
+                    state_dict[key] = value
+
+            # MonkeyPatch hf_hub_download in kokoro.model to use local files
+            import kokoro.model
+            original_download = kokoro.model.hf_hub_download
+            
+            def mock_download(repo_id, filename, **kwargs):
+                local_file = os.path.join(self.settings.model.local_model_dir, filename)
+                if os.path.exists(local_file):
+                    # print(f"Mocking download for {filename} -> {local_file}")
+                    return local_file
+                return original_download(repo_id, filename, **kwargs)
+            
+            kokoro.model.hf_hub_download = mock_download
+            
+            try:
+                self.model = KModel(
+                    repo_id=self.settings.model.repo_id, 
+                    disable_complex=(self.settings.model.dtype != 'fp32') 
+                )
+            finally:
+                kokoro.model.hf_hub_download = original_download            
+            
+            # Load Cleaned Weights
+            missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+            if missing_keys:
+                print(f"WARNING: Missing keys in state_dict: {len(missing_keys)} keys. Proceeding with strict=False.")
+            if unexpected_keys:
+                 print(f"WARNING: Unexpected keys in state_dict: {len(unexpected_keys)} keys. Proceeding with strict=False.")
+
             self.model.eval()
             self.model.to(self.device)
-            print("Model loaded successfully.")
+            print("Model loaded successfully from local file.")
 
             # 2. Initialize Pipelines for each language
+            start_count = 0
             for lang_code, voice_id in self.settings.languages.items():
                 print(f"Initializing pipeline for language: {lang_code} with voice: {voice_id}")
                 
-                # Create pipeline sharing the same model instance to save memory
-                pipeline = KPipeline(
-                    lang_code=lang_code, 
-                    model=self.model,
-                    device=self.device
-                )
-                
-                # Pre-load the assigned voice
-                # KPipeline.load_voice returns the voice embedding tensor, but also caches it internally
                 try:
-                    pipeline.load_voice(voice_id)
+                    pipeline = KPipeline(
+                        lang_code=lang_code, 
+                        model=self.model,
+                        device=self.device,
+                        repo_id=self.settings.model.repo_id # Suppress warning
+                    )
+                    
+                    # Load Voice locally
+                    voice_path = os.path.join(self.settings.model.local_voices_dir, f"{voice_id}.pt")
+                    if not os.path.exists(voice_path):
+                         raise VoiceNotFoundError(f"Local voice file not found: {voice_path}")
+                    
+                    voice = torch.load(voice_path, map_location=self.device)
+                    # Manually register voice
+                    pipeline.voices[voice_id] = voice
+                    
+                    self.pipelines[lang_code] = pipeline
+                    start_count += 1
                 except Exception as e:
-                    print(f"Failed to load voice {voice_id}: {e}")
-                    raise VoiceNotFoundError(f"Voice '{voice_id}' could not be loaded.")
-                
-                self.pipelines[lang_code] = pipeline
+                    print(f"ERROR: Failed to initialize pipeline for language '{lang_code}' (voice: '{voice_id}'): {e}")
+                    # Continue to next language
             
+            if start_count == 0:
+                 raise ModelLoadError("Failed to initialize any language pipelines.")
+
             self.is_ready = True
-            print("TTS Engine initialized and ready.")
+            print(f"TTS Engine initialized and ready with {start_count} languages (Local Mode).")
 
         except Exception as e:
+            if isinstance(e, ModelLoadError):
+                raise e
             print(f"Critical Error initializing TTS Engine: {e}")
             self.is_ready = False
             raise ModelLoadError(f"Failed to initialize TTSEngine: {str(e)}")
@@ -147,7 +205,7 @@ class TTSEngine:
         
         # Encode to WAV in memory
         buffer = io.BytesIO()
-        sf.write(buffer, audio_array, 24000, format='WAV')
+        sf.write(buffer, audio_array, 24000, format='WAV', subtype='PCM_16')
         buffer.seek(0)
         
         return buffer.read()

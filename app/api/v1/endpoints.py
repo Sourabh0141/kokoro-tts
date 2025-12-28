@@ -23,7 +23,11 @@ async def generate_audio(
             request.lang_code,
             request.speed
         )
-        return Response(content=wav_bytes, media_type="audio/wav")
+        return Response(
+            content=wav_bytes, 
+            media_type="audio/wav",
+            headers={"Content-Disposition": "attachment; filename=audio.wav"}
+        )
     
     except LanguageNotSupportedError as e:
         raise HTTPException(status_code=400, detail=str(e))
