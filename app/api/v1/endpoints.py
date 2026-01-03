@@ -1,4 +1,6 @@
 import asyncio
+import traceback
+import sys
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from app.schemas.tts import TTSRequest, HealthResponse, VoicesResponse, StatusResponse, VoiceStatusDetail
 from app.services.tts import TTSEngine
@@ -57,7 +59,9 @@ async def generate_audio(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # In a real app, we would log the full stack trace here
+        # Log the full stack trace for debugging
+        print(f"ERROR: Internal Server Error during audio generation: {str(e)}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         raise HTTPException(status_code=500, detail="Internal Server Error during audio generation.")
 
 @router.get("/health", response_model=HealthResponse)

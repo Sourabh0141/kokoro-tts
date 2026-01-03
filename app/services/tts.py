@@ -128,7 +128,7 @@ class TTSEngine:
             language_codes = {}
             for language, voices_dict in self.available_voices.items():
                 for voice_name, voice_id in voices_dict.items():
-                    lang_code = voice_id[:2]
+                    lang_code = voice_id[0]
                     if lang_code not in language_codes:
                         language_codes[lang_code] = language
                         print(f"  Mapped language: {language} ({lang_code})")
@@ -165,7 +165,7 @@ class TTSEngine:
         """
         # Find language name from code
         language_name = None
-        for lang_name, code in self.language_codes.items():
+        for code, lang_name in self.language_codes.items():
             if code == lang_code:
                 language_name = lang_name
                 break
@@ -211,6 +211,8 @@ class TTSEngine:
         # Load from disk
         voice_tensor = self.voice_manager.load_voice(language, voice, voice_id)
         return voice_tensor
+
+    def validate_request(self, text: str, language: str, voice: str) -> str:
         """
         Validates request parameters.
         Returns the voice_id (file name) to use.
@@ -275,9 +277,9 @@ class TTSEngine:
         
         # Get language code
         lang_code = None
-        for lang_name in self.language_codes:
-            if lang_name == language:
-                lang_code = self.language_codes[lang_name]
+        for code, name in self.language_codes.items():
+            if name == language:
+                lang_code = code
                 break
         
         if lang_code is None:
