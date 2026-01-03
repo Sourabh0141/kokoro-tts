@@ -2,6 +2,7 @@ import sys
 import os
 import io
 from typing import Dict, Optional, Any, List
+from unittest.mock import patch
 import torch
 import soundfile as sf
 
@@ -69,60 +70,92 @@ class TTSEngine:
         try:
             print(f"Initializing TTS Engine on device: {self.device}")
             
-            # Step 1: Load Model only (no voices)
+            # Step 1: Resolve Model Path
             local_model_path = os.path.join(self.settings.model.local_model_dir, "kokoro-v1_0.pth")
             if not os.path.exists(local_model_path):
                 local_model_path = os.path.join(self.settings.model.local_model_dir, "kokoro-v0_19.pth")
             
             print(f"Loading Model from: {local_model_path}")
             
+            # Ensure model file exists (or let it fail later if strict)
+            # We check here to provide a clear error before attempting complex loading
             if not os.path.exists(local_model_path):
-                raise FileNotFoundError(f"Model file not found at {local_model_path}. Please run download_models.py")
+                 # If not found locally, we will try to let the library download it via the fallback
+                 # in mock_download, but we need to know WHICH file to load for our cleaning logic.
+                 # If we rely on download, we can't pre-clean. 
+                 # Production Assumption: Models are present or will be downloaded to this path.
+                 print(f"Model not found at {local_model_path}. KModel will attempt download.")
 
-            # Load Raw State Dict
-            raw_state_dict = torch.load(local_model_path, map_location=self.device)
+            # Step 2: Intelligent Single-Load & Clean
+            # We load the weights MANUALLY once to clean the 'module.' prefixes.
+            # Then we feed this cleaned dict to KModel via interception.
             
-            # Flatten and Clean State Dict (Handle 'bert' -> 'module.' wrapping)
-            state_dict = {}
-            for key, value in raw_state_dict.items():
-                if isinstance(value, dict):
-                    for sub_key, sub_val in value.items():
-                        if sub_key.startswith("module."):
-                            sub_key = sub_key[7:]
-                        state_dict[f"{key}.{sub_key}"] = sub_val
-                else:
-                    state_dict[key] = value
+            state_dict = None
+            if os.path.exists(local_model_path):
+                print("  • Reading state dict from disk...")
+                raw_state_dict = torch.load(local_model_path, map_location=self.device)
+                
+                # Check for "state_dict" wrapper key commonly used in PyTorch Lightning/etc
+                if "state_dict" in raw_state_dict and isinstance(raw_state_dict["state_dict"], dict):
+                     print("  • Detected 'state_dict' wrapper, unwrapping...")
+                     raw_state_dict = raw_state_dict["state_dict"]
 
-            # MonkeyPatch hf_hub_download in kokoro.model to use local files
+                print("  • Cleaning state dict keys...")
+                state_dict = {}
+                for key, value in raw_state_dict.items():
+                    # Strip 'module.' prefix if present (DataParallel artifact)
+                    clean_key = key[7:] if key.startswith("module.") else key
+                    state_dict[clean_key] = value
+                
+                # Free raw memory immediately
+                del raw_state_dict
+                print(f"  • State dict ready in memory ({len(state_dict)} keys).")
+
+            # MonkeyPatch hf_hub_download in kokoro.model to use local files with fallback
             import kokoro.model
             original_download = kokoro.model.hf_hub_download
             
             def mock_download(repo_id, filename, **kwargs):
+                # Priority 1: Check Local Storage
                 local_file = os.path.join(self.settings.model.local_model_dir, filename)
                 if os.path.exists(local_file):
                     return local_file
+                
+                # Priority 2: Fallback to Hugging Face
+                print(f"  • File {filename} not found locally, downloading from HF...")
                 return original_download(repo_id, filename, **kwargs)
             
             kokoro.model.hf_hub_download = mock_download
-            
+
+            # Intercept torch.load to use our in-memory state_dict
+            def load_injector(f, *args, **kwargs):
+                # If we have a cleaned state_dict and KModel asks for the model file
+                if state_dict is not None and isinstance(f, str) and (
+                    "kokoro-v0_19.pth" in f or "kokoro-v1_0.pth" in f
+                ):
+                    print("  • Injecting cleaned weights from memory into KModel")
+                    return state_dict
+                
+                # Otherwise pass through to real torch.load
+                return torch.load(f, *args, **kwargs)
+
             try:
-                self.model = KModel(
-                    repo_id=self.settings.model.repo_id, 
-                    disable_complex=(self.settings.model.dtype != 'fp32') 
-                )
+                # Apply the injection patch
+                with patch('torch.load', side_effect=load_injector):
+                    self.model = KModel(
+                        repo_id=self.settings.model.repo_id, 
+                        disable_complex=(self.settings.model.dtype != 'fp32') 
+                    )
             finally:
+                # Restore original download just in case
                 kokoro.model.hf_hub_download = original_download            
             
-            # Load Cleaned Weights
-            missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
-            if missing_keys:
-                print(f"WARNING: Missing keys in state_dict: {len(missing_keys)} keys. Proceeding with strict=False.")
-            if unexpected_keys:
-                print(f"WARNING: Unexpected keys in state_dict: {len(unexpected_keys)} keys. Proceeding with strict=False.")
+            # Note: We do NOT need self.model.load_state_dict(state_dict) 
+            # because KModel already initialized with it via load_injector!
 
             self.model.eval()
             self.model.to(self.device)
-            print("✓ Model loaded successfully from local file.")
+            print("✓ Model loaded successfully.")
 
             # Step 2: Build language code mapping (no voice loading)
             language_codes = {}
