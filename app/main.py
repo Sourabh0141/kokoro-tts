@@ -20,8 +20,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    # (Optional: Clean up resources if needed)
-    pass
+    engine.voice_manager.stop_cleanup_loop()
 
 app = FastAPI(
     title=get_settings().service.name,
