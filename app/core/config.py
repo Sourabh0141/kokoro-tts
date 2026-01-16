@@ -1,6 +1,9 @@
 from functools import lru_cache
-from typing import Dict
-from pydantic import BaseModel
+from typing import Dict, Any
+import os
+import glob
+from pathlib import Path
+from pydantic import BaseModel, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class ServiceSettings(BaseModel):
@@ -24,86 +27,88 @@ class Settings(BaseSettings):
     model: ModelSettings = ModelSettings()
     
     # All available voices per language (full names to voice IDs)
-    all_voices: Dict[str, Dict[str, str]] = {
-        "American English": {
-            "Alloy (Female)": "af_alloy",
-            "Aoede (Female)": "af_aoede",
-            "Bella (Female)": "af_bella",
-            "Heart (Female)": "af_heart",
-            "Jessica (Female)": "af_jessica",
-            "Kore (Female)": "af_kore",
-            "Nicole (Female)": "af_nicole",
-            "Nova (Female)": "af_nova",
-            "River (Female)": "af_river",
-            "Sarah (Female)": "af_sarah",
-            "Sky (Female)": "af_sky",
-            "Adam (Male)": "am_adam",
-            "Echo (Male)": "am_echo",
-            "Eric (Male)": "am_eric",
-            "Fenrir (Male)": "am_fenrir",
-            "Liam (Male)": "am_liam",
-            "Michael (Male)": "am_michael",
-            "Onyx (Male)": "am_onyx",
-            "Puck (Male)": "am_puck",
-            "Santa (Male)": "am_santa",
-        },
-        "British English": {
-            "Alice (Female)": "bf_alice",
-            "Emma (Female)": "bf_emma",
-            "Isabella (Female)": "bf_isabella",
-            "Lily (Female)": "bf_lily",
-            "Daniel (Male)": "bm_daniel",
-            "Fable (Male)": "bm_fable",
-            "George (Male)": "bm_george",
-            "Lewis (Male)": "bm_lewis",
-        },
-        "Spanish": {
-            "Dora (Female)": "ef_dora",
-            "Alex (Male)": "em_alex",
-            "Santa (Male)": "em_santa",
-        },
-        "French": {
-            "Siwis (Female)": "ff_siwis",
-        },
-        "Hindi": {
-            "Alpha (Female)": "hf_alpha",
-            "Beta (Female)": "hf_beta",
-            "Omega (Male)": "hm_omega",
-            "Psi (Male)": "hm_psi",
-        },
-        "Italian": {
-            "Sara (Female)": "if_sara",
-            "Nicola (Male)": "im_nicola",
-        },
-        "Japanese": {
-            "Alpha (Female)": "jf_alpha",
-            "Gongitsune (Female)": "jf_gongitsune",
-            "Nezumi (Female)": "jf_nezumi",
-            "Tebukuro (Female)": "jf_tebukuro",
-            "Kumo (Male)": "jm_kumo",
-        },
-        "Portuguese": {
-            "Dora (Female)": "pf_dora",
-            "Alex (Male)": "pm_alex",
-            "Santa (Male)": "pm_santa",
-        },
-        "Chinese": {
-            "Xiaobei (Female)": "zf_xiaobei",
-            "Xiaoni (Female)": "zf_xiaoni",
-            "Xiaoxiao (Female)": "zf_xiaoxiao",
-            "Xiaoyi (Female)": "zf_xiaoyi",
-            "Yunjian (Male)": "zm_yunjian",
-            "Yunxi (Male)": "zm_yunxi",
-            "Yunxia (Male)": "zm_yunxia",
-            "Yunyang (Male)": "zm_yunyang",
-        }
-    }
+    # This will be populated dynamically from disk
+    all_voices: Dict[str, Dict[str, str]] = {}
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_nested_delimiter="__",
         case_sensitive=False
     )
+
+    @model_validator(mode='after')
+    def load_dynamic_voices(self) -> 'Settings':
+        """
+        Dynamically populate all_voices by scanning the local_voices_dir.
+        """
+        voices_dir = self.model.local_voices_dir
+        
+        # If directory doesn't exist yet (e.g. before download), keep empty
+        if not os.path.exists(voices_dir):
+            return self
+
+        # Map prefix char to Language Name
+        # Based on Kokoro convention: a=American, b=British, j=Japanese, z=Chinese, etc.
+        lang_map = {
+            'a': "American English",
+            'b': "British English",
+            'e': "Spanish", # e for Espanol
+            'f': "French",
+            'h': "Hindi",
+            'i': "Italian",
+            'j': "Japanese",
+            'p': "Portuguese",
+            'z': "Chinese",
+        }
+
+        # Map gender char
+        gender_map = {
+            'f': "Female",
+            'm': "Male"
+        }
+
+        discovered_voices: Dict[str, Dict[str, str]] = {}
+
+        # Scan for .pt files
+        pattern = os.path.join(voices_dir, "*.pt")
+        for file_path in glob.glob(pattern):
+            filename = os.path.basename(file_path) # e.g., af_bella.pt
+            voice_id = os.path.splitext(filename)[0] # e.g., af_bella
+            
+            parts = voice_id.split('_')
+            if len(parts) < 2:
+                continue # Skip invalid format
+            
+            prefix = parts[0] # e.g., af
+            name_part = parts[1] # e.g., bella
+            
+            if len(prefix) < 2:
+                continue
+                
+            lang_code = prefix[0]
+            gender_code = prefix[1]
+            
+            language = lang_map.get(lang_code, "Unknown Language")
+            gender = gender_map.get(gender_code, "")
+            
+            # Format display name: "Bella (Female)" or just "Bella"
+            display_name = name_part.title()
+            if gender:
+                display_name = f"{display_name} ({gender})"
+            
+            if language not in discovered_voices:
+                discovered_voices[language] = {}
+            
+            discovered_voices[language][display_name] = voice_id
+
+        # Update the field
+        # Sort keys for consistent output
+        sorted_voices = {}
+        for lang in sorted(discovered_voices.keys()):
+            sorted_voices[lang] = dict(sorted(discovered_voices[lang].items()))
+            
+        self.all_voices = sorted_voices
+        return self
 
 @lru_cache
 def get_settings() -> Settings:

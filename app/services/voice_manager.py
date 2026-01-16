@@ -9,7 +9,7 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -33,7 +33,7 @@ class VoiceManager:
     Features:
     - On-demand loading from disk
     - Automatic TTL-based unloading
-    - Thread-safe access with RLock
+    - Thread-safe access with granular locking
     - Memory tracking and statistics
     """
 
@@ -54,7 +54,12 @@ class VoiceManager:
         self.loaded_voices: Dict[Tuple[str, str], LoadedVoiceInfo] = {}
 
         # Thread synchronization
-        self.lock = threading.RLock()
+        # main_lock protects the loaded_voices dict structure and key_locks dict
+        self.main_lock = threading.RLock()
+        
+        # Per-voice locks to allow concurrent loading of different voices
+        # key -> threading.Lock
+        self.key_locks: Dict[Tuple[str, str], threading.Lock] = {}
 
         # Background cleanup thread
         self.cleanup_thread: Optional[threading.Thread] = None
@@ -63,40 +68,48 @@ class VoiceManager:
         # Statistics
         self.total_unloaded = 0
 
+    def _get_voice_lock(self, key: Tuple[str, str]) -> threading.Lock:
+        """Get or create a lock for a specific voice key."""
+        with self.main_lock:
+            if key not in self.key_locks:
+                self.key_locks[key] = threading.Lock()
+            return self.key_locks[key]
+
     def load_voice(
         self, language: str, voice_name: str, voice_id: str
     ) -> torch.Tensor:
         """
         Load voice tensor from disk or return cached version.
         Updates last access time.
-
-        Args:
-            language: Language name (e.g., "American English")
-            voice_name: Voice name (e.g., "Bella (Female)")
-            voice_id: Voice file ID (e.g., "af_bella")
-
-        Returns:
-            torch.Tensor: Voice embedding tensor
-
-        Raises:
-            FileNotFoundError: If voice file not found
-            Exception: If loading fails
+        
+        Uses per-voice locking to allow concurrent loading of different voices.
         """
-        with self.lock:
-            key = (language, voice_name)
+        key = (language, voice_name)
 
-            # If already loaded, update timestamp and return
+        # 1. Fast path: Check if already loaded (using main lock for dict access)
+        with self.main_lock:
             if key in self.loaded_voices:
                 self.loaded_voices[key].last_access_time = datetime.now()
                 return self.loaded_voices[key].voice_tensor
 
-            # Load from disk
+        # 2. Acquire specific lock for this voice
+        voice_lock = self._get_voice_lock(key)
+        
+        with voice_lock:
+            # 3. Double-check locking pattern
+            with self.main_lock:
+                if key in self.loaded_voices:
+                    self.loaded_voices[key].last_access_time = datetime.now()
+                    return self.loaded_voices[key].voice_tensor
+
+            # 4. Heavy load from disk (outside main_lock, inside voice_lock)
             voice_path = os.path.join(self.voices_dir, f"{voice_id}.pt")
 
             if not os.path.exists(voice_path):
                 raise FileNotFoundError(f"Voice file not found: {voice_path}")
 
             try:
+                # This is the slow part
                 voice_tensor = torch.load(voice_path, map_location=self.device)
 
                 # Calculate size in MB
@@ -104,18 +117,20 @@ class VoiceManager:
                     1024 * 1024
                 )
 
-                # Store in cache
-                info = LoadedVoiceInfo(
-                    voice_tensor=voice_tensor,
-                    last_access_time=datetime.now(),
-                    language=language,
-                    voice_name=voice_name,
-                    voice_id=voice_id,
-                    size_mb=size_mb,
-                )
-                self.loaded_voices[key] = info
-
-                print(f"✓ Loaded voice: {voice_name} ({voice_id}) - {size_mb:.1f}MB")
+                # Store in cache (needs main_lock again)
+                with self.main_lock:
+                    info = LoadedVoiceInfo(
+                        voice_tensor=voice_tensor,
+                        last_access_time=datetime.now(),
+                        language=language,
+                        voice_name=voice_name,
+                        voice_id=voice_id,
+                        size_mb=size_mb,
+                    )
+                    self.loaded_voices[key] = info
+                    
+                    # Log only once
+                    print(f"✓ Loaded voice: {voice_name} ({voice_id}) - {size_mb:.1f}MB")
 
                 return voice_tensor
 
@@ -126,15 +141,8 @@ class VoiceManager:
         """
         Get loaded voice if available (without loading from disk).
         Updates last access time if found.
-
-        Args:
-            language: Language name
-            voice_name: Voice name
-
-        Returns:
-            Voice tensor if loaded, None otherwise
         """
-        with self.lock:
+        with self.main_lock:
             key = (language, voice_name)
             if key in self.loaded_voices:
                 self.loaded_voices[key].last_access_time = datetime.now()
@@ -142,35 +150,27 @@ class VoiceManager:
             return None
 
     def unload_voice(self, language: str, voice_name: str) -> bool:
-        """
-        Explicitly unload a voice from memory.
-
-        Args:
-            language: Language name
-            voice_name: Voice name
-
-        Returns:
-            True if unloaded, False if not loaded
-        """
-        with self.lock:
+        """Explicitly unload a voice from memory."""
+        with self.main_lock:
             key = (language, voice_name)
             if key in self.loaded_voices:
                 info = self.loaded_voices.pop(key)
                 # Delete tensor to free memory
                 del info.voice_tensor
                 self.total_unloaded += 1
+                
+                # Cleanup the lock if it exists and no one is waiting (hard to know if waiting, 
+                # but we can leave the lock object in memory, it's tiny)
+                # Ideally we could clean up self.key_locks[key] too, but race conditions make it tricky.
+                # Since voice keys are finite, keeping empty locks is acceptable.
+                
                 print(f"✓ Unloaded voice: {voice_name} ({info.voice_id})")
                 return True
             return False
 
     def cleanup_expired_voices(self) -> int:
-        """
-        Check all loaded voices and unload expired ones.
-
-        Returns:
-            Number of voices unloaded
-        """
-        with self.lock:
+        """Check all loaded voices and unload expired ones."""
+        with self.main_lock:
             now = datetime.now()
             expired = []
 
@@ -192,13 +192,7 @@ class VoiceManager:
             return len(expired)
 
     def start_cleanup_loop(self, check_interval_seconds: int = 5):
-        """
-        Start background thread that periodically checks for expired voices.
-
-        Args:
-            check_interval_seconds: How often to check for expiration (default 5s)
-        """
-
+        """Start background thread that periodically checks for expired voices."""
         def cleanup_loop():
             while not self.should_stop:
                 try:
@@ -233,7 +227,7 @@ class VoiceManager:
             self.cleanup_thread.join(timeout=5)
 
         # Unload all remaining voices
-        with self.lock:
+        with self.main_lock:
             remaining_keys = list(self.loaded_voices.keys())
             for key in remaining_keys:
                 info = self.loaded_voices.pop(key)
@@ -243,13 +237,8 @@ class VoiceManager:
         print("✓ Voice cleanup loop stopped")
 
     def get_stats(self) -> dict:
-        """
-        Get current statistics about loaded voices.
-
-        Returns:
-            Dictionary with voice statistics
-        """
-        with self.lock:
+        """Get current statistics about loaded voices."""
+        with self.main_lock:
             total_memory = sum(info.size_mb for info in self.loaded_voices.values())
             return {
                 "loaded_voices": len(self.loaded_voices),

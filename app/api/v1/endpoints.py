@@ -1,11 +1,12 @@
 import asyncio
-import traceback
 import sys
+import psutil
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from app.schemas.tts import TTSRequest, HealthResponse, VoicesResponse, StatusResponse, VoiceStatusDetail
 from app.services.tts import TTSEngine
 from app.core.dependencies import get_tts_engine, api_key_auth
 from app.core.exceptions import LanguageNotSupportedError, VoiceNotFoundError
+from app.core.logging import logger
 
 router = APIRouter()
 
@@ -16,26 +17,6 @@ async def generate_audio(
 ):
     """
     Generate audio from text using the Kokoro TTS engine.
-    
-    Parameters:
-    - text: Text to synthesize (required)
-    - language: Language name, e.g., "American English", "British English", "Japanese" (required)
-    - voice: Voice name, e.g., "Bella (Female)", "Adam (Male)" (required)
-    - speed: Speech speed multiplier, 0.5-2.0 (default: 1.0)
-    
-    Returns:
-    - WAV audio file
-    
-    Note: First request for a voice may be slower (~100-200ms) due to disk loading.
-    Subsequent requests are cached (~50ms).
-    
-    Example:
-    {
-        "text": "Hello world",
-        "language": "American English",
-        "voice": "Bella (Female)",
-        "speed": 1.0
-    }
     """
     try:
         # Run the blocking inference in a separate thread to avoid blocking the event loop
@@ -52,32 +33,19 @@ async def generate_audio(
             headers={"Content-Disposition": "attachment; filename=audio.wav"}
         )
     
-    except LanguageNotSupportedError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except VoiceNotFoundError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except ValueError as e:
+    except (LanguageNotSupportedError, VoiceNotFoundError, ValueError) as e:
+        # Client errors - log as warning
+        logger.warning(f"Client error in audio generation: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # Log the full stack trace for debugging
-        print(f"ERROR: Internal Server Error during audio generation: {str(e)}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
+        # Server errors - log full trace
+        logger.error(f"Internal Server Error during audio generation: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal Server Error during audio generation.")
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check(service: TTSEngine = Depends(get_tts_engine)):
     """
     Health check endpoint to verify service status and voice availability.
-    
-    Returns:
-    - status: "ok" if ready
-    - loaded_languages: Number of languages with cached pipelines
-    - loaded_voices: Number of voices currently in memory
-    - total_voices: Total available voices (57)
-    - memory_usage_mb: Memory used by loaded voices (not including model)
-    - model_memory_mb: Estimated model size (~1500MB for CPU)
-    - device: Computation device (cpu, cuda, mps)
-    - is_ready: Whether service is ready to process requests
     """
     if not service.is_ready:
         raise HTTPException(
@@ -87,19 +55,23 @@ async def health_check(service: TTSEngine = Depends(get_tts_engine)):
     
     stats = service.voice_manager.get_stats()
     
-    # Estimate model memory (rough estimate, actual depends on dtype/device)
-    if service.device == "cuda":
-        model_memory_mb = 1500  # GPU optimization
-    else:
-        model_memory_mb = 2000  # CPU mode
+    # Get actual memory usage using psutil
+    process = psutil.Process()
+    # rss (Resident Set Size) in MB
+    total_rss_mb = process.memory_info().rss / (1024 * 1024)
+    
+    # Estimate model memory as (Total RSS - Voice Memory)
+    # This is rough but better than hardcoded
+    # Ensure non-negative
+    model_memory_mb = max(0, total_rss_mb - stats['total_memory_mb'])
     
     return HealthResponse(
         status="ok",
         loaded_languages=len(service.pipelines_cache),
         loaded_voices=stats['loaded_voices'],
         total_voices=sum(len(v) for v in service.available_voices.values()),
-        memory_usage_mb=stats['total_memory_mb'],
-        model_memory_mb=model_memory_mb,
+        memory_usage_mb=stats['total_memory_mb'], # Loaded voices memory
+        model_memory_mb=model_memory_mb, # Remaining process memory (Model + overhead)
         device=service.device,
         is_ready=service.is_ready
     )
@@ -108,12 +80,6 @@ async def health_check(service: TTSEngine = Depends(get_tts_engine)):
 async def voice_status(service: TTSEngine = Depends(get_tts_engine)):
     """
     Get detailed status of currently loaded voices and memory usage.
-    
-    Returns:
-    - voices: List of loaded voices with TTL info
-    - total_memory_mb: Total memory used by voices
-    - cleanup_checks_performed: Number of TTL checks performed
-    - voices_unloaded_total: Total voices unloaded since startup
     """
     if not service.is_ready:
         raise HTTPException(
@@ -138,7 +104,7 @@ async def voice_status(service: TTSEngine = Depends(get_tts_engine)):
     return StatusResponse(
         voices=voice_details,
         total_memory_mb=stats['total_memory_mb'],
-        cleanup_checks_performed=len(stats['voices_detail']),  # Simplified
+        cleanup_checks_performed=len(stats['voices_detail']),  # Simplified placeholder
         voices_unloaded_total=stats['total_unloaded']
     )
 
@@ -146,11 +112,6 @@ async def voice_status(service: TTSEngine = Depends(get_tts_engine)):
 async def list_voices(service: TTSEngine = Depends(get_tts_engine)):
     """
     Get list of all available voices and languages.
-    
-    Returns:
-    - languages: Dictionary mapping language names to voice names and IDs
-    - total_voices: Total number of available voices across all languages
-    - total_languages: Total number of supported languages
     """
     if not service.is_ready:
         raise HTTPException(
