@@ -1,7 +1,5 @@
 import os
-# Suppress Hugging Face symlink warnings
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -10,6 +8,9 @@ from app.api.v1.router import api_router
 from app.services.tts import TTSEngine
 from app.core.dependencies import set_tts_engine
 from app.core.logging import logger
+
+# Suppress Hugging Face symlink warnings
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,7 +39,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    logger.info("Shutting down...")
+    logger.info("Shutting down Kokoro TTS Service...")
     if 'engine' in locals():
         engine.voice_manager.stop_cleanup_loop()
 
@@ -47,6 +48,24 @@ app = FastAPI(
     version=get_settings().service.version,
     lifespan=lifespan
 )
+
+# Request Logging Middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    
+    # Extract request ID if available, or just path
+    path = request.url.path
+    method = request.method
+    
+    response = await call_next(request)
+    
+    process_time = (time.time() - start_time) * 1000
+    status_code = response.status_code
+    
+    logger.info(f"{method} {path} - {status_code} - {process_time:.2f}ms")
+    
+    return response
 
 # Global Exception Handler
 @app.exception_handler(Exception)

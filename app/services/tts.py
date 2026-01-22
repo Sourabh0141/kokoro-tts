@@ -1,6 +1,7 @@
 import sys
 import os
 import io
+import time
 from typing import Dict, Optional, Any, List
 from unittest.mock import patch
 import torch
@@ -27,6 +28,7 @@ except ImportError:
 from app.core.config import Settings
 from app.core.exceptions import ModelLoadError, VoiceNotFoundError, LanguageNotSupportedError
 from app.services.voice_manager import VoiceManager
+from app.core.logging import logger
 
 class TTSEngine:
     def __init__(self, settings: Settings):
@@ -68,14 +70,14 @@ class TTSEngine:
         Voices are loaded on-demand in generate() method.
         """
         try:
-            print(f"Initializing TTS Engine on device: {self.device}")
+            logger.info(f"Initializing TTS Engine on device: {self.device}")
             
             # Step 1: Resolve Model Path
             local_model_path = os.path.join(self.settings.model.local_model_dir, "kokoro-v1_0.pth")
             if not os.path.exists(local_model_path):
                 local_model_path = os.path.join(self.settings.model.local_model_dir, "kokoro-v0_19.pth")
             
-            print(f"Loading Model from: {local_model_path}")
+            logger.info(f"Loading Model from: {local_model_path}")
             
             # Ensure model file exists (or let it fail later if strict)
             # We check here to provide a clear error before attempting complex loading
@@ -84,7 +86,7 @@ class TTSEngine:
                  # in mock_download, but we need to know WHICH file to load for our cleaning logic.
                  # If we rely on download, we can't pre-clean. 
                  # Production Assumption: Models are present or will be downloaded to this path.
-                 print(f"Model not found at {local_model_path}. KModel will attempt download.")
+                 logger.warning(f"Model not found at {local_model_path}. KModel will attempt download.")
 
             # Step 2: Intelligent Single-Load & Clean
             # We load the weights MANUALLY once to clean the 'module.' prefixes.
@@ -92,15 +94,15 @@ class TTSEngine:
             
             state_dict = None
             if os.path.exists(local_model_path):
-                print("  • Reading state dict from disk...")
+                logger.info("Reading state dict from disk...")
                 raw_state_dict = torch.load(local_model_path, map_location=self.device)
                 
                 # Check for "state_dict" wrapper key commonly used in PyTorch Lightning/etc
                 if "state_dict" in raw_state_dict and isinstance(raw_state_dict["state_dict"], dict):
-                     print("  • Detected 'state_dict' wrapper, unwrapping...")
+                     logger.info("Detected 'state_dict' wrapper, unwrapping...")
                      raw_state_dict = raw_state_dict["state_dict"]
 
-                print("  • Cleaning state dict keys...")
+                logger.debug("Cleaning state dict keys...")
                 state_dict = {}
                 for key, value in raw_state_dict.items():
                     # Strip 'module.' prefix if present (DataParallel artifact)
@@ -109,7 +111,7 @@ class TTSEngine:
                 
                 # Free raw memory immediately
                 del raw_state_dict
-                print(f"  • State dict ready in memory ({len(state_dict)} keys).")
+                logger.info(f"State dict ready in memory ({len(state_dict)} keys).")
 
             # MonkeyPatch hf_hub_download in kokoro.model to use local files with fallback
             import kokoro.model
@@ -122,7 +124,7 @@ class TTSEngine:
                     return local_file
                 
                 # Priority 2: Fallback to Hugging Face
-                print(f"  • File {filename} not found locally, downloading from HF...")
+                logger.info(f"File {filename} not found locally, downloading from HF...")
                 return original_download(repo_id, filename, **kwargs)
             
             kokoro.model.hf_hub_download = mock_download
@@ -133,7 +135,7 @@ class TTSEngine:
                 if state_dict is not None and isinstance(f, str) and (
                     "kokoro-v0_19.pth" in f or "kokoro-v1_0.pth" in f
                 ):
-                    print("  • Injecting cleaned weights from memory into KModel")
+                    logger.debug("Injecting cleaned weights from memory into KModel")
                     return state_dict
                 
                 # Otherwise pass through to real torch.load
@@ -155,7 +157,7 @@ class TTSEngine:
 
             self.model.eval()
             self.model.to(self.device)
-            print("✓ Model loaded successfully.")
+            logger.info("Model loaded successfully.")
 
             # Step 2: Build language code mapping (no voice loading)
             language_codes = {}
@@ -164,7 +166,7 @@ class TTSEngine:
                     lang_code = voice_id[0]
                     if lang_code not in language_codes:
                         language_codes[lang_code] = language
-                        print(f"  Mapped language: {language} ({lang_code})")
+                        logger.debug(f"Mapped language: {language} ({lang_code})")
             
             self.language_codes = language_codes
 
@@ -173,16 +175,13 @@ class TTSEngine:
 
             # Mark ready immediately (no voice loading blocking)
             self.is_ready = True
-            print(f"\n✓ TTS Engine initialized and ready (lazy voice loading enabled)!")
-            print(f"  Languages: {len(self.language_codes)}")
-            print(f"  Total Available Voices: {sum(len(v) for v in self.available_voices.values())}")
-            print(f"  Device: {self.device}")
-            print(f"  Voice TTL: 10 minutes")
+            logger.info("TTS Engine initialized and ready (lazy voice loading enabled)!")
+            logger.info(f"Languages: {len(self.language_codes)} | Total Available Voices: {sum(len(v) for v in self.available_voices.values())} | Device: {self.device}")
 
         except Exception as e:
             if isinstance(e, ModelLoadError):
                 raise e
-            print(f"Critical Error initializing TTS Engine: {e}")
+            logger.critical(f"Critical Error initializing TTS Engine: {e}")
             self.is_ready = False
             raise ModelLoadError(f"Failed to initialize TTSEngine: {str(e)}")
 
@@ -212,6 +211,7 @@ class TTSEngine:
         
         # Create and cache pipeline
         try:
+            logger.info(f"Creating new pipeline for language: {language_name} ({lang_code})")
             pipeline = KPipeline(
                 lang_code=lang_code,
                 model=self.model,
@@ -219,22 +219,14 @@ class TTSEngine:
                 repo_id=self.settings.model.repo_id
             )
             self.pipelines_cache[language_name] = pipeline
-            print(f"✓ Created pipeline for language: {language_name} ({lang_code})")
             return pipeline
         except Exception as e:
+            logger.error(f"Failed to create pipeline for {language_name}: {e}")
             raise ModelLoadError(f"Failed to create pipeline for {language_name}: {str(e)}")
 
     def _ensure_voice_loaded(self, language: str, voice: str, voice_id: str) -> torch.Tensor:
         """
         Ensure voice is loaded in memory (lazy load from disk if needed).
-        
-        Args:
-            language: Language name
-            voice: Voice name
-            voice_id: Voice file ID
-        
-        Returns:
-            Voice tensor
         """
         # Try to get from cache
         voice_tensor = self.voice_manager.get_voice(language, voice)
@@ -242,6 +234,7 @@ class TTSEngine:
             return voice_tensor
         
         # Load from disk
+        logger.debug(f"Voice miss in cache, loading from disk: {voice} ({voice_id})")
         voice_tensor = self.voice_manager.load_voice(language, voice, voice_id)
         return voice_tensor
 
@@ -249,34 +242,25 @@ class TTSEngine:
         """
         Validates request parameters.
         Returns the voice_id (file name) to use.
-        
-        Args:
-            text: Text to synthesize
-            language: Language name (e.g., "American English")
-            voice: Voice name (e.g., "Bella (Female)")
-        
-        Returns:
-            str: The voice_id (file name) to use
-            
-        Raises:
-            LanguageNotSupportedError: If language not supported
-            VoiceNotFoundError: If voice not found for language
-            ValueError: If text invalid
         """
         # Check language exists
         if language not in self.available_voices:
+            logger.warning(f"Validation failed: Language '{language}' not supported.")
             raise LanguageNotSupportedError(language, list(self.available_voices.keys()))
         
         # Check text validity
         if not text.strip():
+            logger.warning("Validation failed: Empty text.")
             raise ValueError("Text cannot be empty.")
         
         if len(text) > 5000:
+            logger.warning(f"Validation failed: Text too long ({len(text)} chars).")
             raise ValueError("Text length exceeds maximum limit of 5000 characters.")
         
         # Check voice exists for language
         if voice not in self.available_voices[language]:
             available = ", ".join(self.available_voices[language].keys())
+            logger.warning(f"Validation failed: Voice '{voice}' not found for '{language}'.")
             raise VoiceNotFoundError(
                 f"Voice '{voice}' not available for language '{language}'. "
                 f"Available voices: {available}"
@@ -288,23 +272,9 @@ class TTSEngine:
     def generate(self, text: str, language: str, voice: str, speed: float) -> bytes:
         """
         Generate audio from text using specified voice and language.
-        
-        Voices are loaded on-demand from disk (first request may be slower).
-        
-        Args:
-            text: Text to synthesize
-            language: Language name (e.g., "American English")
-            voice: Voice name (e.g., "Bella (Female)")
-            speed: Speed multiplier
-            
-        Returns:
-            bytes: WAV audio data
-            
-        Raises:
-            LanguageNotSupportedError: If language not supported
-            VoiceNotFoundError: If voice not found
-            ValueError: If text invalid or no audio generated
         """
+        start_time = time.time()
+        
         # Validate and get voice_id (file name)
         voice_id = self.validate_request(text, language, voice)
         
@@ -316,37 +286,50 @@ class TTSEngine:
                 break
         
         if lang_code is None:
+            logger.error(f"Language code map inconsistency for {language}")
             raise LanguageNotSupportedError(language, list(self.available_voices.keys()))
         
-        # Get or create pipeline (lazy load)
-        pipeline = self._get_or_create_pipeline(lang_code)
-        
-        # Ensure voice is loaded (lazy load from disk)
-        voice_tensor = self._ensure_voice_loaded(language, voice, voice_id)
-        
-        # Register voice with pipeline
-        pipeline.voices[voice_id] = voice_tensor
-        
-        # Generator that yields Result objects
-        result_generator = pipeline(text, voice=voice_id, speed=speed)
-        
-        audio_segments = []
-        for result in result_generator:
-            if result.audio is not None:
-                audio_segments.append(result.audio)
-        
-        if not audio_segments:
-            raise ValueError("No audio generated from the input text.")
+        try:
+            # Get or create pipeline (lazy load)
+            pipeline = self._get_or_create_pipeline(lang_code)
             
-        # Concatenate all audio segments
-        full_tensor = torch.cat(audio_segments, dim=0)
-        
-        # Move to CPU and convert to numpy
-        audio_array = full_tensor.cpu().numpy()
-        
-        # Encode to WAV in memory
-        buffer = io.BytesIO()
-        sf.write(buffer, audio_array, 24000, format='WAV', subtype='PCM_16')
-        buffer.seek(0)
-        
-        return buffer.read()
+            # Ensure voice is loaded (lazy load from disk)
+            voice_tensor = self._ensure_voice_loaded(language, voice, voice_id)
+            
+            # Register voice with pipeline
+            pipeline.voices[voice_id] = voice_tensor
+            
+            # Generator that yields Result objects
+            result_generator = pipeline(text, voice=voice_id, speed=speed)
+            
+            audio_segments = []
+            for result in result_generator:
+                if result.audio is not None:
+                    audio_segments.append(result.audio)
+            
+            if not audio_segments:
+                logger.warning(f"No audio segments generated for text of length {len(text)}")
+                raise ValueError("No audio generated from the input text.")
+                
+            # Concatenate all audio segments
+            full_tensor = torch.cat(audio_segments, dim=0)
+            
+            # Move to CPU and convert to numpy
+            audio_array = full_tensor.cpu().numpy()
+            
+            # Encode to WAV in memory
+            buffer = io.BytesIO()
+            sf.write(buffer, audio_array, 24000, format='WAV', subtype='PCM_16')
+            buffer.seek(0)
+            
+            wav_data = buffer.read()
+            duration_ms = (time.time() - start_time) * 1000
+            
+            logger.info(f"Generated audio: {len(text)} chars | {language}/{voice} | Speed: {speed} | Size: {len(wav_data)} bytes | Time: {duration_ms:.2f}ms")
+            
+            return wav_data
+            
+        except Exception as e:
+            if not isinstance(e, (LanguageNotSupportedError, VoiceNotFoundError, ValueError)):
+                logger.error(f"Error during generation: {e}", exc_info=True)
+            raise e

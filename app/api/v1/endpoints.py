@@ -18,6 +18,8 @@ async def generate_audio(
     """
     Generate audio from text using the Kokoro TTS engine.
     """
+    # Middleware logs the request entry/exit and timing.
+    # Service logs the generation details.
     try:
         # Run the blocking inference in a separate thread to avoid blocking the event loop
         wav_bytes = await asyncio.to_thread(
@@ -47,7 +49,9 @@ async def health_check(service: TTSEngine = Depends(get_tts_engine)):
     """
     Health check endpoint to verify service status and voice availability.
     """
+    logger.debug("Health check requested")
     if not service.is_ready:
+        logger.warning("Health check failed: Service not ready")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Service is initializing or not ready"
@@ -81,6 +85,7 @@ async def voice_status(service: TTSEngine = Depends(get_tts_engine)):
     """
     Get detailed status of currently loaded voices and memory usage.
     """
+    logger.debug("Voice status requested")
     if not service.is_ready:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -113,6 +118,7 @@ async def list_voices(service: TTSEngine = Depends(get_tts_engine)):
     """
     Get list of all available voices and languages.
     """
+    logger.debug("Voice list requested")
     if not service.is_ready:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
