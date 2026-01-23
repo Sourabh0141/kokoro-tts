@@ -23,83 +23,95 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class ServiceSettings(BaseModel):
     """
     Service-level configuration settings.
-
-    Defines the core service parameters for hosting, identification, and security.
-    These settings control how the TTS service operates and is accessed.
-
-    Attributes:
-        host: Network interface to bind to (default: "0.0.0.0" for all interfaces)
-        port: Port number for the service (default: 8880)
-        name: Human-readable service name
-        version: Service version string
-        environment: Deployment environment ("development", "production", etc.)
-        api_key: API key for service authentication
     """
-
-    host: str = "0.0.0.0"
-    port: int = 8880
-    name: str = "Kokoro TTS Service"
-    version: str = "1.0.0"
-    environment: str = "development"
-    api_key: str = "dev_api_key"
+    host: str
+    port: int
+    name: str
+    version: str
+    environment: str
+    api_key: str
+    log_level: str
+    reload: bool
+    docs_url: str
+    api_v1_prefix: str
+    hf_hub_disable_symlinks_warning: str
 
 
 class ModelSettings(BaseModel):
     """
     Model and inference configuration settings.
-
-    Defines parameters for the Kokoro TTS model, including repository information,
-    compute device preferences, and local file paths for models and voices.
-
-    Attributes:
-        repo_id: Hugging Face repository identifier for the model
-        device: Preferred compute device ("cpu", "cuda", "mps")
-        dtype: Data type for model weights ("fp32", "fp16", "bf16")
-        local_model_dir: Local directory path for model files
-        local_voices_dir: Local directory path for voice embedding files
     """
+    repo_id: str
+    device: str
+    dtype: str
+    local_model_dir: str
+    local_voices_dir: str
+    file_v1: str
+    file_v0_19: str
 
-    repo_id: str = "hexgrad/Kokoro-82M"
-    device: str = "cpu"
-    dtype: str = "fp32"
-    local_model_dir: str = "models/model"
-    local_voices_dir: str = "models/voices"
+
+class AudioSettings(BaseModel):
+    """
+    Audio generation configuration settings.
+    """
+    sample_rate: int
+    format: str
+    subtype: str
+    default_filename: str
+    media_type: str
+
+
+class LimitSettings(BaseModel):
+    """
+    Application limits and constraints.
+    """
+    max_text_length: int
+    min_text_length: int
+    min_speed: float
+    max_speed: float
+    default_speed: float
+
+
+class CacheSettings(BaseModel):
+    """
+    Memory management and caching settings.
+    """
+    ttl_seconds: int
+    cleanup_interval_seconds: int
+    shutdown_timeout_seconds: int
+
+
+class LoggingSettings(BaseModel):
+    """
+    Logging configuration settings.
+    """
+    date_format: str
+    uvicorn_level: str
+    transformers_level: str
+    torch_level: str
 
 
 class Settings(BaseSettings):
     """
     Main application settings with dynamic voice discovery.
-
-    The root settings class that combines service and model configurations.
-    Includes automatic discovery of available voices from the local filesystem
-    and environment variable support with nested configuration.
-
-    Attributes:
-        service: Service-level configuration settings
-        model: Model and inference configuration settings
-        all_voices: Dynamically discovered voice catalog
-
-    Environment Variables:
-        Configuration can be overridden via environment variables using double
-        underscore notation (e.g., SERVICE__PORT=9000, MODEL__DEVICE=cuda).
-
-        Examples:
-        - SERVICE__API_KEY=your_secure_key
-        - MODEL__DEVICE=cuda
-        - MODEL__LOCAL_MODEL_DIR=/path/to/models
     """
 
-    service: ServiceSettings = ServiceSettings()
-    model: ModelSettings = ModelSettings()
+    service: ServiceSettings
+    model: ModelSettings
+    audio: AudioSettings
+    limits: LimitSettings
+    cache: CacheSettings
+    logging: LoggingSettings
 
     # Dynamically populated from local voice files
     all_voices: Dict[str, Dict[str, str]] = {}
 
     # Pydantic settings configuration
     model_config = SettingsConfigDict(
-        env_file=".env",  # Load from .env file if present
-        env_nested_delimiter="__",  # Use __ for nested settings
-        case_sensitive=False,  # Case-insensitive environment variables
+        env_file=".env",
+        env_nested_delimiter="__",
+        case_sensitive=False,
+        extra="ignore" # Ignore extra env vars
     )
 
     @model_validator(mode="after")

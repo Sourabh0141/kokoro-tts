@@ -10,7 +10,11 @@
 # -----------------------------------------------------------------------------
 import logging
 import sys
-import os
+
+# -----------------------------------------------------------------------------
+# Local Application Imports
+# -----------------------------------------------------------------------------
+from app.core.config import get_settings
 
 
 def setup_logging():
@@ -18,20 +22,21 @@ def setup_logging():
     Configure the root logger with structured console output and noise reduction.
 
     Sets up logging with the following features:
-    - Configurable log level via LOG_LEVEL environment variable
+    - Configurable log level via configuration
     - Structured format with timestamps, levels, and logger names
     - Console output to stdout for containerized deployment
     - Automatic handler cleanup to prevent duplicate logs
     - Third-party library noise reduction (uvicorn, transformers, torch)
 
-    The function configures the root logger to use INFO level by default,
-    but this can be overridden with LOG_LEVEL environment variable.
+    The function configures the root logger based on application settings.
 
     Returns:
         logging.Logger: Configured root logger instance
     """
-    # Get log level from environment, default to INFO
-    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+    settings = get_settings()
+
+    # Get log level from settings
+    log_level_str = settings.service.log_level.upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
     # Configure root logger
@@ -41,7 +46,8 @@ def setup_logging():
     # Create console handler for structured output
     handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt=settings.logging.date_format,
     )
     handler.setFormatter(formatter)
 
@@ -54,11 +60,11 @@ def setup_logging():
 
     # Reduce noise from third-party libraries
     # Uvicorn access logs are handled by our custom middleware
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(settings.logging.uvicorn_level)
 
     # Suppress verbose logging from ML libraries during inference
-    logging.getLogger("transformers").setLevel(logging.WARNING)
-    logging.getLogger("torch").setLevel(logging.WARNING)
+    logging.getLogger("transformers").setLevel(settings.logging.transformers_level)
+    logging.getLogger("torch").setLevel(settings.logging.torch_level)
 
     return logger
 

@@ -6,14 +6,22 @@
 # automatic validation, and API documentation generation.
 
 # -----------------------------------------------------------------------------
+# Standard Library Imports
+# -----------------------------------------------------------------------------
+from typing import List, Dict
+
+# -----------------------------------------------------------------------------
 # Third-Party Imports
 # -----------------------------------------------------------------------------
 from pydantic import BaseModel, Field
 
 # -----------------------------------------------------------------------------
-# Standard Library Imports
+# Local Application Imports
 # -----------------------------------------------------------------------------
-from typing import List, Dict
+from app.core.config import get_settings
+
+# Load settings for schema validation limits
+settings = get_settings()
 
 
 class TTSRequest(BaseModel):
@@ -30,7 +38,9 @@ class TTSRequest(BaseModel):
         speed: Playback speed multiplier (range: 0.5 to 2.0, default: 1.0)
     """
 
-    text: str = Field(..., min_length=1, description="Text to synthesize")
+    text: str = Field(
+        ..., min_length=settings.limits.min_text_length, description="Text to synthesize"
+    )
     language: str = Field(
         ...,
         description="Language name (e.g., 'American English', 'British English', 'Japanese')",
@@ -39,7 +49,10 @@ class TTSRequest(BaseModel):
         ..., description="Voice name (e.g., 'Bella (Female)', 'Adam (Male)')"
     )
     speed: float = Field(
-        default=1.0, ge=0.5, le=2.0, description="Speed multiplier for playback"
+        default=settings.limits.default_speed,
+        ge=settings.limits.min_speed,
+        le=settings.limits.max_speed,
+        description="Speed multiplier for playback",
     )
 
 

@@ -67,8 +67,7 @@ RUN uv pip install --system --no-cache-dir -r requirements.txt
 # -----------------------------------------------------------------------------
 # Application Startup
 # -----------------------------------------------------------------------------
-# Configure the container to run the FastAPI application with Uvicorn
-# - Host 0.0.0.0: Listen on all interfaces (required for Docker networking)
-# - Port 8880: Service port as configured in the application
-# - app.main:app: Module path to the FastAPI application instance
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8880"]
+# Configure the container to run the FastAPI application via the main module
+# This ensures that the application uses the configuration logic defined in
+# app/main.py (loading from .env, setting env vars, etc.)
+CMD ["python", "-m", "app.main"]

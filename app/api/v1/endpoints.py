@@ -30,6 +30,7 @@ from app.services.tts import TTSEngine
 from app.core.dependencies import get_tts_engine, api_key_auth
 from app.core.exceptions import LanguageNotSupportedError, VoiceNotFoundError
 from app.core.logging import logger
+from app.core.config import get_settings
 
 # -----------------------------------------------------------------------------
 # API Router
@@ -76,6 +77,7 @@ async def generate_audio(
 
         Returns: WAV audio file download
     """
+    settings = get_settings()
     try:
         # Run TTS generation in thread pool to avoid blocking event loop
         wav_bytes = await asyncio.to_thread(
@@ -89,8 +91,8 @@ async def generate_audio(
         # Return audio as downloadable WAV file
         return Response(
             content=wav_bytes,
-            media_type="audio/wav",
-            headers={"Content-Disposition": "attachment; filename=audio.wav"},
+            media_type=settings.audio.media_type,
+            headers={"Content-Disposition": f"attachment; filename={settings.audio.default_filename}"},
         )
 
     except (LanguageNotSupportedError, VoiceNotFoundError, ValueError) as e:
@@ -225,6 +227,7 @@ async def voice_status(service: TTSEngine = Depends(get_tts_engine)):
             detail="Service is initializing or not ready",
         )
 
+    settings = get_settings()
     # Get comprehensive voice manager statistics
     stats = service.voice_manager.get_stats()
 
@@ -236,7 +239,7 @@ async def voice_status(service: TTSEngine = Depends(get_tts_engine)):
             voice_id=v["voice_id"],
             size_mb=v["size_mb"],
             age_seconds=v["age_seconds"],
-            ttl_remaining_seconds=max(0, 600 - int(v["age_seconds"])),  # 10 min TTL
+            ttl_remaining_seconds=max(0, settings.cache.ttl_seconds - int(v["age_seconds"])),
         )
         for v in stats["voices_detail"]
     ]
@@ -332,8 +335,9 @@ async def root():
         - Documentation links for developers
         - Basic service identification
     """
+    settings = get_settings()
     return {
-        "service": "Kokoro TTS",
-        "version": "1.0.0",
-        "docs": "/docs"  # Link to FastAPI auto-generated documentation
+        "service": settings.service.name,
+        "version": settings.service.version,
+        "docs": settings.service.docs_url
     }

@@ -25,11 +25,10 @@ services:
       - ./app:/app/app
 
     # Environment variables for service configuration
-    environment:
-      # Service networking configuration
-      - SERVICE__PORT=8880         # Port the service listens on internally
-      - SERVICE__HOST=0.0.0.0      # Listen on all interfaces (Docker requirement)
+    env_file:
+      - .env
 
+    environment:
       # Python path configuration for module imports
       - PYTHONPATH=/app            # Add /app to Python path for imports
 
@@ -45,7 +44,7 @@ services:
     # Verifies service is responding and models are loaded
     healthcheck:
       # HTTP GET request to the health endpoint
-      test: ["CMD", "curl", "-f", "http://localhost:8880/health", "||", "exit", "1"]
+      test: "curl -f http://localhost:${SERVICE__PORT:-8880}/health || exit 1"
       # Check every 30 seconds
       interval: 30s
       # Timeout after 10 seconds

@@ -23,17 +23,20 @@ import uvicorn
 # Local Application Imports
 # -----------------------------------------------------------------------------
 from app.core.config import get_settings
-from app.api.v1.router import api_router
-from app.services.tts import TTSEngine
-from app.core.dependencies import set_tts_engine
-from app.core.logging import logger
 
 # -----------------------------------------------------------------------------
 # Environment Configuration
 # -----------------------------------------------------------------------------
 # Disable HuggingFace Hub symlink warnings to reduce console noise
 # This prevents warnings about symlinks when downloading models
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+# Must be set before importing transformers/kokoro (via TTSEngine)
+settings = get_settings()
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = settings.service.hf_hub_disable_symlinks_warning
+
+from app.api.v1.router import api_router
+from app.services.tts import TTSEngine
+from app.core.dependencies import set_tts_engine
+from app.core.logging import logger
 
 
 @asynccontextmanager
@@ -53,8 +56,8 @@ async def lifespan(app: FastAPI):
     """
     # Application Startup Phase
     logger.info("Starting up Kokoro TTS Service...")
-    settings = get_settings()
-
+    # Settings already loaded globally, but safe to get again (cached)
+    
     # Check for available voices and warn if none found
     if not settings.all_voices:
         logger.warning(
@@ -89,9 +92,10 @@ async def lifespan(app: FastAPI):
 # FastAPI Application Configuration
 # -----------------------------------------------------------------------------
 app = FastAPI(
-    title=get_settings().service.name,
-    version=get_settings().service.version,
+    title=settings.service.name,
+    version=settings.service.version,
     lifespan=lifespan,
+    docs_url=settings.service.docs_url,
 )
 
 
@@ -153,9 +157,9 @@ async def global_exception_handler(request: Request, exc: Exception):
 # -----------------------------------------------------------------------------
 # API Router Configuration
 # -----------------------------------------------------------------------------
-# Mount the V1 API router with /v1 prefix
+# Mount the V1 API router with prefix from settings
 # This includes all TTS endpoints (audio generation, health checks, etc.)
-app.include_router(api_router, prefix="/v1")
+app.include_router(api_router, prefix=settings.service.api_v1_prefix.rstrip("/"))
 
 
 @app.get("/", include_in_schema=False)
@@ -171,10 +175,10 @@ async def root():
         dict: Service information including name, version, and endpoint links
     """
     return {
-        "service": get_settings().service.name,
-        "version": get_settings().service.version,
-        "docs": "/docs",
-        "api_v1": "/v1/",
+        "service": settings.service.name,
+        "version": settings.service.version,
+        "docs": settings.service.docs_url,
+        "api_v1": settings.service.api_v1_prefix,
     }
 
 
@@ -188,10 +192,9 @@ if __name__ == "__main__":
     Runs the FastAPI application with Uvicorn when this script is executed directly.
     Enables auto-reload for development and uses configuration from settings.
     """
-    settings = get_settings()
     uvicorn.run(
         "app.main:app",
         host=settings.service.host,
         port=settings.service.port,
-        reload=True,
+        reload=settings.service.reload,
     )

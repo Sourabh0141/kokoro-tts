@@ -79,18 +79,26 @@ class VoiceManager:
         total_unloaded: Counter of voices unloaded (for statistics)
     """
 
-    def __init__(self, voices_dir: str, device: str, ttl_seconds: int = 600):
+    def __init__(
+        self,
+        voices_dir: str,
+        device: str,
+        ttl_seconds: int,
+        shutdown_timeout_seconds: int,
+    ):
         """
         Initialize the voice manager.
 
         Args:
             voices_dir: Path to directory containing .pt voice files
             device: PyTorch device string ('cpu', 'cuda', 'mps')
-            ttl_seconds: Time-to-live for loaded voices in seconds (default: 600 = 10 minutes)
+            ttl_seconds: Time-to-live for loaded voices in seconds
+            shutdown_timeout_seconds: Timeout for waiting for cleanup thread to stop
         """
         self.voices_dir = voices_dir
         self.device = device
         self.ttl_seconds = ttl_seconds
+        self.shutdown_timeout_seconds = shutdown_timeout_seconds
 
         # Cache of loaded voices: (language, voice_name) -> LoadedVoiceInfo
         self.loaded_voices: Dict[Tuple[str, str], LoadedVoiceInfo] = {}
@@ -288,7 +296,7 @@ class VoiceManager:
 
             return len(expired)
 
-    def start_cleanup_loop(self, check_interval_seconds: int = 5):
+    def start_cleanup_loop(self, check_interval_seconds: int):
         """
         Start background thread that periodically checks for expired voices.
 
@@ -297,7 +305,7 @@ class VoiceManager:
         The thread sleeps in small intervals to allow for responsive shutdown.
 
         Args:
-            check_interval_seconds: How often to check for expired voices (default: 5 seconds)
+            check_interval_seconds: How often to check for expired voices
         """
 
         def cleanup_loop():
@@ -340,7 +348,7 @@ class VoiceManager:
         self.should_stop = True
 
         if self.cleanup_thread and self.cleanup_thread.is_alive():
-            self.cleanup_thread.join(timeout=5)
+            self.cleanup_thread.join(timeout=self.shutdown_timeout_seconds)
 
         # Unload all remaining voices
         with self.main_lock:

@@ -98,7 +98,8 @@ class TTSEngine:
         self.voice_manager = VoiceManager(
             voices_dir=settings.model.local_voices_dir,
             device=self.device,
-            ttl_seconds=600,  # 10 minutes TTL
+            ttl_seconds=settings.cache.ttl_seconds,
+            shutdown_timeout_seconds=settings.cache.shutdown_timeout_seconds,
         )
 
         # Cache for language-specific pipelines (lazy loaded)
@@ -153,11 +154,11 @@ class TTSEngine:
             # Resolve model file path with version fallback
             # Try v1.0 first, then fall back to v0.19 for compatibility
             local_model_path = os.path.join(
-                self.settings.model.local_model_dir, "kokoro-v1_0.pth"
+                self.settings.model.local_model_dir, self.settings.model.file_v1
             )
             if not os.path.exists(local_model_path):
                 local_model_path = os.path.join(
-                    self.settings.model.local_model_dir, "kokoro-v0_19.pth"
+                    self.settings.model.local_model_dir, self.settings.model.file_v0_19
                 )
 
             logger.info(f"Loading Model from: {local_model_path}")
@@ -216,7 +217,7 @@ class TTSEngine:
                 if (
                     state_dict is not None
                     and isinstance(f, str)
-                    and ("kokoro-v0_19.pth" in f or "kokoro-v1_0.pth" in f)
+                    and (self.settings.model.file_v0_19 in f or self.settings.model.file_v1 in f)
                 ):
                     logger.debug("Injecting cleaned weights from memory into KModel")
                     return state_dict
@@ -247,7 +248,9 @@ class TTSEngine:
 
             self.language_codes = language_codes
 
-            self.voice_manager.start_cleanup_loop(check_interval_seconds=5)
+            self.voice_manager.start_cleanup_loop(
+                check_interval_seconds=self.settings.cache.cleanup_interval_seconds
+            )
 
             self.is_ready = True
             logger.info(
@@ -378,9 +381,9 @@ class TTSEngine:
             logger.warning("Validation failed: Empty text.")
             raise ValueError("Text cannot be empty.")
 
-        if len(text) > 5000:
+        if len(text) > self.settings.limits.max_text_length:
             logger.warning(f"Validation failed: Text too long ({len(text)} chars).")
-            raise ValueError("Text length exceeds maximum limit of 5000 characters.")
+            raise ValueError(f"Text length exceeds maximum limit of {self.settings.limits.max_text_length} characters.")
 
         # Validate voice availability for language
         if voice not in self.available_voices[language]:
@@ -475,7 +478,13 @@ class TTSEngine:
 
             # Encode to WAV format in memory
             buffer = io.BytesIO()
-            sf.write(buffer, audio_array, 24000, format="WAV", subtype="PCM_16")
+            sf.write(
+                buffer,
+                audio_array,
+                self.settings.audio.sample_rate,
+                format=self.settings.audio.format,
+                subtype=self.settings.audio.subtype,
+            )
             buffer.seek(0)
 
             # Get final audio data
