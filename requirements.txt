@@ -1,17 +1,53 @@
-fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
-pydantic>=2.7.0
-pydantic-settings>=2.2.0
-soundfile>=0.12.1
-numpy>=1.26.0
-transformers>=4.40.0
-huggingface_hub>=0.22.0
-misaki[en]>=0.9.4
-kokoro>=0.3.4
-ordered_set>=4.1.0
-pypinyin>=0.50.0
-cn2an>=0.5.0
-jieba>=0.42.1
-pyopenjtalk>=0.3.0
-misaki[ja]
-psutil>=5.9.0
+# =============================================================================
+# Kokoro TTS Service - Python Dependencies
+# =============================================================================
+# This file contains all Python packages required for the Kokoro text-to-speech service.
+# Dependencies are organized by functional category for clarity.
+
+# -----------------------------------------------------------------------------
+# Web Framework and API Server
+# -----------------------------------------------------------------------------
+fastapi>=0.110.0          # Modern, fast web framework for building APIs with automatic OpenAPI docs
+uvicorn[standard]>=0.29.0  # ASGI web server implementation with standard middleware
+
+# -----------------------------------------------------------------------------
+# Data Validation and Configuration
+# -----------------------------------------------------------------------------
+pydantic>=2.7.0           # Data validation and parsing library using Python type hints
+pydantic-settings>=2.2.0  # Settings management for Pydantic models from env vars
+
+# -----------------------------------------------------------------------------
+# Audio Processing and Scientific Computing
+# -----------------------------------------------------------------------------
+soundfile>=0.12.1         # Audio file reading/writing library for WAV format support
+numpy>=1.26.0             # Fundamental package for scientific computing and array operations
+
+# -----------------------------------------------------------------------------
+# Machine Learning and Model Management
+# -----------------------------------------------------------------------------
+transformers>=4.40.0      # Hugging Face transformers library for NLP models
+huggingface_hub>=0.22.0   # Client library for accessing Hugging Face Hub models and datasets
+
+# -----------------------------------------------------------------------------
+# Kokoro TTS Engine and Core Dependencies
+# -----------------------------------------------------------------------------
+kokoro>=0.3.4             # Main Kokoro text-to-speech model and pipeline
+ordered_set>=4.1.0        # Ordered set data structure used by Kokoro
+
+# -----------------------------------------------------------------------------
+# Language Processing Libraries
+# -----------------------------------------------------------------------------
+# Japanese text processing
+misaki[en]>=0.9.4         # English text processing for Kokoro
+misaki[ja]                # Japanese text processing and tokenization
+pyopenjtalk>=0.3.0        # Japanese text-to-speech frontend for OpenJTalk
+
+# Chinese text processing
+pypinyin>=0.50.0          # Chinese text conversion to pinyin romanization
+cn2an>=0.5.0              # Chinese number to Arabic numeral conversion
+jieba>=0.42.1             # Chinese text segmentation library
+
+# -----------------------------------------------------------------------------
+# System Monitoring and Utilities
+# -----------------------------------------------------------------------------
+psutil>=5.9.0             # Cross-platform library for system and process monitoring

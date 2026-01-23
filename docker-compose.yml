@@ -1,20 +1,56 @@
+# =============================================================================
+# Kokoro TTS Service - Docker Compose Configuration
+# =============================================================================
+# Docker Compose orchestration for the Kokoro text-to-speech service.
+# Defines container configuration, networking, volumes, and health monitoring.
+
 services:
+  # Main TTS service container
   tts-service:
+    # Build the container image from the current directory's Dockerfile
     build: .
+
+    # Port mapping: Expose container port 8880 to host port 8880
+    # Allows external access to the FastAPI web service
     ports:
       - "8880:8880"
+
+    # Volume mounts for persistent data and development workflow
     volumes:
+      # Mount models directory as read-only for model and voice files
+      # Provides access to pre-downloaded Kokoro models and voice embeddings
       - ./models:/app/models:ro
+      # Mount application code for development hot-reloading
+      # Enables live code changes without rebuilding the container
       - ./app:/app/app
+
+    # Environment variables for service configuration
     environment:
-      - SERVICE__PORT=8880
-      - SERVICE__HOST=0.0.0.0
-      - PYTHONPATH=/app
+      # Service networking configuration
+      - SERVICE__PORT=8880         # Port the service listens on internally
+      - SERVICE__HOST=0.0.0.0      # Listen on all interfaces (Docker requirement)
+
+      # Python path configuration for module imports
+      - PYTHONPATH=/app            # Add /app to Python path for imports
+
+      # MeCab configuration for Japanese text processing
+      # Points to the UniDic dictionary installed in the container
       - MECABRC=/usr/local/lib/python3.11/site-packages/unidic/dicdir/mecabrc
+
+    # Restart policy: Automatically restart unless manually stopped
+    # Ensures service resilience in production environments
     restart: unless-stopped
+
+    # Health check configuration for container monitoring
+    # Verifies service is responding and models are loaded
     healthcheck:
+      # HTTP GET request to the health endpoint
       test: ["CMD", "curl", "-f", "http://localhost:8880/health", "||", "exit", "1"]
+      # Check every 30 seconds
       interval: 30s
+      # Timeout after 10 seconds
       timeout: 10s
+      # Mark unhealthy after 3 consecutive failures
       retries: 3
+      # Grace period before starting health checks (allows model loading)
       start_period: 40s

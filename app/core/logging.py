@@ -1,46 +1,91 @@
+# =============================================================================
+# Logging Configuration - Centralized Logging Setup for TTS Service
+# =============================================================================
+# This module provides centralized logging configuration for the Kokoro TTS service.
+# It sets up structured console logging with configurable levels and reduces noise
+# from third-party libraries for cleaner application logs.
+
+# -----------------------------------------------------------------------------
+# Standard Library Imports
+# -----------------------------------------------------------------------------
 import logging
 import sys
 import os
 
+
 def setup_logging():
     """
-    Configure the root logger to output to stdout in a structured format.
-    Reads LOG_LEVEL from environment, defaults to INFO.
+    Configure the root logger with structured console output and noise reduction.
+
+    Sets up logging with the following features:
+    - Configurable log level via LOG_LEVEL environment variable
+    - Structured format with timestamps, levels, and logger names
+    - Console output to stdout for containerized deployment
+    - Automatic handler cleanup to prevent duplicate logs
+    - Third-party library noise reduction (uvicorn, transformers, torch)
+
+    The function configures the root logger to use INFO level by default,
+    but this can be overridden with LOG_LEVEL environment variable.
+
+    Returns:
+        logging.Logger: Configured root logger instance
     """
+    # Get log level from environment, default to INFO
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
+    # Configure root logger
     logger = logging.getLogger()
     logger.setLevel(log_level)
 
+    # Create console handler for structured output
     handler = logging.StreamHandler(sys.stdout)
-    # detailed format with timestamps
     formatter = logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
     handler.setFormatter(formatter)
-    
-    # Remove existing handlers to avoid duplicates
+
+    # Clear existing handlers to prevent duplicate logging
     if logger.hasHandlers():
         logger.handlers.clear()
-    
+
+    # Add our handler to the root logger
     logger.addHandler(handler)
-    
-    # Set levels for libraries
-    # uvicorn.access is handled by our own middleware usually, or we keep it enabled
-    # If we add custom request logging, we might want to silence uvicorn.access
+
+    # Reduce noise from third-party libraries
+    # Uvicorn access logs are handled by our custom middleware
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    
-    # Set third-party noise to warning
+
+    # Suppress verbose logging from ML libraries during inference
     logging.getLogger("transformers").setLevel(logging.WARNING)
     logging.getLogger("torch").setLevel(logging.WARNING)
 
     return logger
 
-# Initialize logging immediately on import
+
+# -----------------------------------------------------------------------------
+# Global Logger Instance
+# -----------------------------------------------------------------------------
+# Initialize the root logger with our configuration
+# This is called once at module import time
 logger = setup_logging()
 
+
 def get_logger(name: str) -> logging.Logger:
-    """Get a logger instance with the specified name."""
+    """
+    Get a named logger instance with the configured settings.
+
+    Creates or retrieves a logger with the specified name. The logger will
+    inherit the configuration from the root logger set up by setup_logging().
+
+    Args:
+        name: Logger name, typically the module name (e.g., "app.services.tts")
+
+    Returns:
+        logging.Logger: Configured logger instance for the given name
+
+    Example:
+        logger = get_logger(__name__)
+        logger.info("This is an info message")
+    """
     return logging.getLogger(name)
