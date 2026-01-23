@@ -69,23 +69,3 @@ def setup_logging():
 # Initialize the root logger with our configuration
 # This is called once at module import time
 logger = setup_logging()
-
-
-def get_logger(name: str) -> logging.Logger:
-    """
-    Get a named logger instance with the configured settings.
-
-    Creates or retrieves a logger with the specified name. The logger will
-    inherit the configuration from the root logger set up by setup_logging().
-
-    Args:
-        name: Logger name, typically the module name (e.g., "app.services.tts")
-
-    Returns:
-        logging.Logger: Configured logger instance for the given name
-
-    Example:
-        logger = get_logger(__name__)
-        logger.info("This is an info message")
-    """
-    return logging.getLogger(name)
