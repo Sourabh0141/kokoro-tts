@@ -44,7 +44,7 @@ services:
     # Verifies service is responding and models are loaded
     healthcheck:
       # HTTP GET request to the health endpoint
-      test: "curl -f http://localhost:${SERVICE__PORT:-8880}/health || exit 1"
+      test: "curl -f http://localhost:${SERVICE__PORT:-8880}/v1/health || exit 1"
       # Check every 30 seconds
       interval: 30s
       # Timeout after 10 seconds

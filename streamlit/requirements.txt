@@ -1,0 +1,17 @@
+# =============================================================================
+# Streamlit Frontend Dependencies
+# =============================================================================
+#
+# This file lists the Python packages required to run the Streamlit
+# application. Use 'pip install -r requirements.txt' to install them.
+#
+# -----------------------------------------------------------------------------
+
+# The core framework for building the web application UI.
+streamlit>=1.30.0
+
+# Used by the API client to make HTTP requests to the backend TTS service.
+requests>=2.31.0
+
+# Used for data validation and settings management in the configuration.
+pydantic>=2.0.0

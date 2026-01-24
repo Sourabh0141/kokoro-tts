@@ -1,0 +1,63 @@
+/*
+=============================================================================
+Streamlit Frontend Custom Styles
+=============================================================================
+
+This file contains custom CSS to style the Streamlit application for a
+more polished look and feel.
+*/
+
+/* --- Main App Container --- */
+/* Center the app content and set a maximum width for better readability on large screens. */
+.stApp {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* --- Block Container --- */
+/* Adjust padding for the main content area. */
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+/* --- TTS Form Styling (Light Mode) --- */
+/* Style the main form container with a light background, padding, and a subtle shadow. */
+[data-testid="stForm"] {
+    background-color: #f8f9fa;
+    padding: 2rem;
+    border-radius: 10px;
+    border: 1px solid #e9ecef;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+}
+
+/* --- TTS Form Styling (Dark Mode) --- */
+/* Adjust form background and border for dark mode to match the Streamlit theme. */
+@media (prefers-color-scheme: dark) {
+    [data-testid="stForm"] {
+        background-color: #262730; /* A common dark theme background color */
+        border: 1px solid #333;
+    }
+}
+
+/* --- System Status Indicator --- */
+/* General style for the small circle used to indicate system status. */
+.status-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+/* --- "OK" Status --- */
+/* A green color for the status indicator when the system is online. */
+.status-ok {
+    background-color: #28a745;
+}
+
+/* --- "Error" Status --- */
+/* A red color for the status indicator when the system is offline or has an error. */
+.status-error {
+    background-color: #dc3545;
+}
