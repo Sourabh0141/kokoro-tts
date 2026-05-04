@@ -8,12 +8,15 @@ services:
   # Main TTS service container (Backend)
   tts-service:
     # Build the container image from the backend directory
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        - SERVICE__PORT=${SERVICE__PORT}
 
-    # Port mapping: Expose container port 8880 to host port 8880
+    # Port mapping: Expose container port to host port
     # Allows external access to the FastAPI web service
     ports:
-      - "8880:8880"
+      - "${SERVICE__PORT}:${SERVICE__PORT}"
 
     # Volume mounts for persistent data and development workflow
     volumes:
@@ -22,7 +25,7 @@ services:
       # Mount application code for development hot-reloading
       - ./backend/app:/app/app
 
-    # Environment variables for service configuration
+    # Load environment variables from the backend .env file
     env_file:
       - ./backend/.env
 
@@ -37,7 +40,7 @@ services:
 
     # Health check configuration for container monitoring
     healthcheck:
-      test: "curl -f http://localhost:${SERVICE__PORT:-8880}/v1/health || exit 1"
+      test: "curl -f http://localhost:${SERVICE__PORT}/v1/health || exit 1"
       interval: 30s
       timeout: 10s
       retries: 3
@@ -51,26 +54,28 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    
+      args:
+        - FRONTEND_PORT=${FRONTEND_PORT}
+
     # Name the container for easy identification
     container_name: kokoro-tts-streamlit
-    
-    # Map the container's port 8501 to the host's port 8501
+
+    # Map the container's port to the host's port
     ports:
-      - "8501:8501"
-      
+      - "${FRONTEND_PORT}:${FRONTEND_PORT}"
+
     # Load environment variables from the frontend .env file
     env_file:
       - ./frontend/.env
-      
+
     environment:
-      # Override backend URL to use the Docker service name
-      - API_BASE_URL=http://tts-service:8880
+      # Override backend URL to use the Docker service name and port
+      - API_BASE_URL=http://tts-service:${SERVICE__PORT}
 
     # Attach the container to the shared network
     networks:
       - kokoro-network
-    
+
     # Ensure backend is started first
     depends_on:
       - tts-service

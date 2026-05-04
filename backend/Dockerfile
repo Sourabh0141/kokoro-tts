@@ -2,12 +2,19 @@
 # Kokoro TTS Service - Docker Configuration
 # =============================================================================
 # Multi-stage Dockerfile for containerizing the Kokoro text-to-speech service.
-# Uses Python 3.11 on Debian Bookworm slim base image for minimal footprint.
+
+# --- Build Arguments ---
+# Service port (must match .env and docker-compose)
+ARG SERVICE__PORT
 
 # -----------------------------------------------------------------------------
 # Base Stage: Python Environment Setup
 # -----------------------------------------------------------------------------
 FROM python:3.11-slim-bookworm
+
+# Make port available to runtime
+ENV SERVICE__PORT=${SERVICE__PORT}
+EXPOSE ${SERVICE__PORT}
 
 # -----------------------------------------------------------------------------
 # System Dependencies Installation
