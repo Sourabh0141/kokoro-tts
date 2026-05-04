@@ -5,10 +5,10 @@
 # Defines container configuration, networking, volumes, and health monitoring.
 
 services:
-  # Main TTS service container
+  # Main TTS service container (Backend)
   tts-service:
-    # Build the container image from the current directory's Dockerfile
-    build: .
+    # Build the container image from the backend directory
+    build: ./backend
 
     # Port mapping: Expose container port 8880 to host port 8880
     # Allows external access to the FastAPI web service
@@ -18,38 +18,59 @@ services:
     # Volume mounts for persistent data and development workflow
     volumes:
       # Mount models directory as read-only for model and voice files
-      # Provides access to pre-downloaded Kokoro models and voice embeddings
-      - ./models:/app/models:ro
+      - ./backend/models:/app/models:ro
       # Mount application code for development hot-reloading
-      # Enables live code changes without rebuilding the container
-      - ./app:/app/app
+      - ./backend/app:/app/app
 
     # Environment variables for service configuration
     env_file:
-      - .env
+      - ./backend/.env
 
     environment:
       # Python path configuration for module imports
-      - PYTHONPATH=/app            # Add /app to Python path for imports
-
+      - PYTHONPATH=/app
       # MeCab configuration for Japanese text processing
-      # Points to the UniDic dictionary installed in the container
       - MECABRC=/usr/local/lib/python3.11/site-packages/unidic/dicdir/mecabrc
 
     # Restart policy: Automatically restart unless manually stopped
-    # Ensures service resilience in production environments
     restart: unless-stopped
 
     # Health check configuration for container monitoring
-    # Verifies service is responding and models are loaded
     healthcheck:
-      # HTTP GET request to the health endpoint
       test: "curl -f http://localhost:${SERVICE__PORT:-8880}/v1/health || exit 1"
-      # Check every 30 seconds
       interval: 30s
-      # Timeout after 10 seconds
       timeout: 10s
-      # Mark unhealthy after 3 consecutive failures
       retries: 3
-      # Grace period before starting health checks (allows model loading)
       start_period: 40s
+    networks:
+      - kokoro-network
+
+  # Streamlit frontend service
+  streamlit-frontend:
+    # Build the Docker image from the frontend directory
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    
+    # Name the container for easy identification
+    container_name: kokoro-tts-streamlit
+    
+    # Map the container's port 8501 to the host's port 8501
+    ports:
+      - "8501:8501"
+      
+    # Load environment variables from the frontend .env file
+    env_file:
+      - ./frontend/.env
+      
+    # Attach the container to the shared network
+    networks:
+      - kokoro-network
+    
+    # Ensure backend is started first
+    depends_on:
+      - tts-service
+
+networks:
+  kokoro-network:
+    driver: bridge

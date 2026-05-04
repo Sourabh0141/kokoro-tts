@@ -23,8 +23,9 @@ from huggingface_hub import hf_hub_download, list_repo_files
 REPO_ID = "hexgrad/Kokoro-82M"
 
 # Local directories for storing downloaded files
-MODEL_DIR = Path("models/model")  # Directory for model weights and config
-VOICES_DIR = Path("models/voices")  # Directory for voice embedding files
+BASE_DIR = Path(__file__).parent
+MODEL_DIR = BASE_DIR / "model"  # Directory for model weights and config
+VOICES_DIR = BASE_DIR / "voices"  # Directory for voice embedding files
 
 
 def setup_directories():

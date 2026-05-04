@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
     if not settings.all_voices:
         logger.warning(
             f"No voices found in {settings.model.local_voices_dir}. "
-            "Did you run models/download_models.py? "
+            "Did you run backend/models/download_models.py? "
             "The service will start but voice generation will fail until voices are available."
         )
     else:

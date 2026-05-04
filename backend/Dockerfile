@@ -65,6 +65,12 @@ COPY requirements.txt .
 RUN uv pip install --system --no-cache-dir -r requirements.txt
 
 # -----------------------------------------------------------------------------
+# Copy Application Code
+# -----------------------------------------------------------------------------
+# Copy the application code and model metadata (excluding weights which should be mounted)
+COPY . .
+
+# -----------------------------------------------------------------------------
 # Application Startup
 # -----------------------------------------------------------------------------
 # Configure the container to run the FastAPI application via the main module

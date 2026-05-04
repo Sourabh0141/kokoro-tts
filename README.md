@@ -51,10 +51,10 @@ graph TD
         subgraph "Core Logic"
             Engine -->|Get Voice| VoiceMgr[Voice Manager]
             VoiceMgr -->|Check Cache| Memory[(Memory Cache)]
-            VoiceMgr -->|Load .pt| DiskVoices[./models/voices/*.pt]
+            VoiceMgr -->|Load .pt| DiskVoices[./backend/models/voices/*.pt]
             
             Engine -->|Inference| Model[Kokoro Model]
-            Model -->|Load Weights| DiskModel[./models/model/*.pth]
+            Model -->|Load Weights| DiskModel[./backend/models/model/*.pth]
         end
     end
     
@@ -89,23 +89,24 @@ graph TD
 
 3.  **Install Dependencies:**
     ```bash
-    pip install -r requirements.txt
+    pip install -r backend/requirements.txt
     ```
 
 4.  **Download Models & Voices:**
     > ⚠️ **Critical Step:** You must download the model weights and voice files before starting the service.
     ```bash
-    python models/download_models.py
+    python backend/models/download_models.py
     ```
 
 5.  **Configure Environment:**
     ```bash
-    cp .env.example .env
-    # Edit .env to set your API Key and preferences
+    cp backend/.env.example backend/.env
+    # Edit backend/.env to set your API Key and preferences
     ```
 
 6.  **Run the Service:**
     ```bash
+    cd backend
     python -m app.main
     # Service will run at http://0.0.0.0:8880
     ```
@@ -117,10 +118,10 @@ The recommended way to deploy is using Docker.
 1.  **Download Models (One-time setup):**
     ```bash
     # It's best to download models locally first so they can be mounted into the container
-    python models/download_models.py
+    python backend/models/download_models.py
     ```
 
-2.  **Build and Run:**
+2.  **Build and Run (Entire Stack):**
     ```bash
     docker-compose up --build -d
     ```
@@ -183,18 +184,19 @@ Returns service status, memory usage, and loaded resource statistics.
 
 ```text
 text_to_speech/
-├── app/
-│   ├── api/            # API Route definitions
+├── backend/
+│   ├── app/            # API Route definitions
 │   ├── core/           # Configuration, logging, dependencies
 │   ├── schemas/        # Pydantic data models
 │   └── services/       # Core TTS engine and Voice Manager
-├── models/
-│   ├── download_models.py  # Script to fetch assets from HuggingFace
-│   ├── model/          # Model weights storage
-│   └── voices/         # Voice embeddings storage
-├── Dockerfile          # Production Docker image definition
-├── docker-compose.yml  # Local orchestration
-└── requirements.txt    # Python dependencies
+│   ├── models/
+│   │   ├── download_models.py  # Script to fetch assets from HuggingFace
+│   │   ├── model/          # Model weights storage
+│   │   └── voices/         # Voice embeddings storage
+│   ├── Dockerfile          # Production Docker image definition
+│   └── requirements.txt    # Python dependencies
+├── frontend/           # Streamlit frontend service
+└── docker-compose.yml  # Root orchestration
 ```
 
 ## Development
@@ -202,7 +204,15 @@ text_to_speech/
 To run the server in development mode with auto-reload:
 
 ```bash
+cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8880 --reload
+```
+
+To run the frontend:
+
+```bash
+cd frontend
+streamlit run app.py
 ```
 
 ## Credits
