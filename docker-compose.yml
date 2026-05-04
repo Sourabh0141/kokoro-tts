@@ -63,6 +63,10 @@ services:
     env_file:
       - ./frontend/.env
       
+    environment:
+      # Override backend URL to use the Docker service name
+      - API_BASE_URL=http://tts-service:8880
+
     # Attach the container to the shared network
     networks:
       - kokoro-network
